@@ -22,13 +22,7 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <BrowserRouter
-          basename={
-            import.meta.env.BASE_URL === '/'
-              ? undefined
-              : import.meta.env.BASE_URL.replace(/\/$/, '')
-          }
-        >
+        <BrowserRouter>
           <AuthProvider>
             <Toaster
               position="top-right"

@@ -67,7 +67,7 @@ After running the seed script, use these credentials to test:
 
 **Test User Account:**
 - Email: `ahmed@test.com`
-  - Password: `Test@1234`
+- Password: `Test@1234`
 
 ## API Endpoints
 

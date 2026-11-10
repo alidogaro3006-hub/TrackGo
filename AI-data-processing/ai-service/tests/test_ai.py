@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from unittest.mock import patch, MagicMock
 from preprocessing import generate_synthetic_data, clean_data, engineer_features, get_route_history, prepare_model_features
-from rule_engine import predict_crowd_rule, get_best_travel_time, get_cheapest_day, get_rule_recommendation
+from rule_engine import predict_crowd_rule, get_best_travel_time, get_cheapest_day, get_selected_day_price, get_rule_recommendation
 from explainer import generate_explanations
 from httpx import AsyncClient
 from main import app
@@ -74,22 +74,37 @@ def test_get_cheapest_day_returns_valid_day():
     assert result["cheapest_day"] in valid_days
 
 
-def test_patterned_data_matches_seed_rules():
-    """Synthetic data should follow the same Tuesday-cheap / early-morning-quiet rules as the demo seed."""
-    df = generate_synthetic_data(2000)
-    df = engineer_features(clean_data(df))
-    cheapest = get_cheapest_day(df)
-    assert cheapest["cheapest_day"] == "Tuesday"
-    best = get_best_travel_time(df, "2026-12-01")
-    assert best["best_time"] == "05:00-07:00"
-
-
 def test_get_rule_recommendation_full_output():
     """Test that rule recommendation returns all expected fields."""
     df = get_sample_df()
     result = get_rule_recommendation(df, "2025-06-15")
-    for key in ["crowd_level", "crowd_percent", "bestTravelTime", "cheapestDay", "cheapestDayPrice"]:
+    for key in ["crowd_level", "crowd_percent", "bestTravelTime", "cheapestDay", "cheapestDayPrice", "selectedDay", "selectedDayPrice"]:
         assert key in result
+
+
+def test_get_selected_day_price_matches_weekday():
+    """Test that the selected day price is the average price for that weekday."""
+    df = get_sample_df()
+    result = get_selected_day_price(df, "2025-06-15")
+    assert result["selected_day"] == "Sunday"
+    expected = round(df[df['day_of_week'] == 6]['price'].mean(), 2)
+    assert result["avg_price"] == expected
+
+
+def test_get_selected_day_price_not_below_cheapest():
+    """Test that no weekday is cheaper than the reported cheapest day."""
+    df = get_sample_df()
+    cheapest = get_cheapest_day(df)
+    for date in ["2025-06-09", "2025-06-10", "2025-06-11", "2025-06-12", "2025-06-13", "2025-06-14", "2025-06-15"]:
+        assert get_selected_day_price(df, date)["avg_price"] >= cheapest["avg_price"]
+
+
+def test_get_selected_day_price_empty_df():
+    """Test that selected day price handles empty dataframes gracefully."""
+    empty_df = pd.DataFrame(columns=['day_of_week', 'price'])
+    result = get_selected_day_price(empty_df, "2025-06-15")
+    assert result["selected_day"] == "Sunday"
+    assert result["avg_price"] is None
 
 
 def test_generate_explanations_all_crowd_levels():

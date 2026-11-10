@@ -26,29 +26,6 @@ DAY_NAMES = {
 }
 
 
-def _ensure_occupancy(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty or 'occupancy_rate' in df.columns:
-        return df
-    out = df.copy()
-    capacity = out['total_capacity'].replace(0, pd.NA)
-    out['occupancy_rate'] = (out['seats_booked'] / capacity).clip(0, 1).fillna(0)
-    return out
-
-
-def _row_dates(df: pd.DataFrame) -> pd.Series:
-    return pd.to_datetime(df['date'], utc=True, errors='coerce').dt.date
-
-
-def _rows_on_date(route_df: pd.DataFrame, date_str: str) -> pd.DataFrame:
-    if route_df.empty or 'date' not in route_df.columns:
-        return route_df.iloc[0:0]
-    try:
-        target = datetime.strptime(date_str, "%Y-%m-%d").date()
-    except (ValueError, TypeError):
-        return route_df.iloc[0:0]
-    return route_df[_row_dates(route_df) == target]
-
-
 def predict_crowd_rule(route_df: pd.DataFrame, date_str: str) -> Dict[str, Any]:
     """
     Predict crowd level using rule-based approach based on historical occupancy.
@@ -72,9 +49,7 @@ def predict_crowd_rule(route_df: pd.DataFrame, date_str: str) -> Dict[str, Any]:
             "note": "Invalid date format"
         }
 
-    route_df = _ensure_occupancy(route_df)
-    on_date = _rows_on_date(route_df, date_str)
-    filtered = on_date.copy() if len(on_date) > 0 else route_df[route_df['day_of_week'] == day_of_week].copy()
+    filtered = route_df[route_df['day_of_week'] == day_of_week].copy()
 
     if filtered.empty:
         logger.warning(f"No historical data for day {day_of_week}")
@@ -129,16 +104,7 @@ def get_best_travel_time(route_df: pd.DataFrame, date_str: str) -> Dict[str, Any
             "reason": "General estimate - invalid date format"
         }
 
-    route_df = _ensure_occupancy(route_df)
-    on_date = _rows_on_date(route_df, date_str)
-    if len(on_date) > 0:
-        filtered = on_date.copy()
-        min_count = 1
-        time_key = 'departure_time' if 'departure_time' in filtered.columns and filtered['departure_time'].notna().any() else 'time_slot'
-    else:
-        filtered = route_df[route_df['day_of_week'] == day_of_week].copy()
-        min_count = 3
-        time_key = 'time_slot'
+    filtered = route_df[route_df['day_of_week'] == day_of_week].copy()
 
     if filtered.empty:
         logger.warning(f"No historical data for day {day_of_week}")
@@ -148,22 +114,17 @@ def get_best_travel_time(route_df: pd.DataFrame, date_str: str) -> Dict[str, Any
             "reason": "General estimate - insufficient route data"
         }
 
-    grouped = filtered.groupby(time_key)['occupancy_rate'].agg(['mean', 'count'])
-    # Ignore a time slot that only appears once or twice unless we are using
-    # live trips on the requested date.
-    reliable = grouped[grouped['count'] >= min_count]
-    if not reliable.empty:
-        grouped = reliable
+    time_slot_occupancy = filtered.groupby('time_slot')['occupancy_rate'].mean()
 
-    if grouped.empty:
+    if time_slot_occupancy.empty:
         return {
             "best_time": "07:00-09:00",
             "avg_occupancy": 0.45,
             "reason": "General estimate - no time slot data"
         }
 
-    best_slot = grouped['mean'].idxmin()
-    min_occ = grouped['mean'].min()
+    best_slot = time_slot_occupancy.idxmin()
+    min_occ = time_slot_occupancy.min()
 
     availability_percent = round((1 - min_occ) * 100)
     reason = f"Historically {availability_percent}% seats available in this window"
@@ -195,14 +156,7 @@ def get_cheapest_day(route_df: pd.DataFrame) -> Dict[str, Any]:
             "currency": "PKR"
         }
 
-    price_df = route_df
-    if 'date' in route_df.columns:
-        today = datetime.utcnow().date()
-        upcoming = route_df[_row_dates(route_df) >= today]
-        if len(upcoming) >= 8:
-            price_df = upcoming
-
-    day_price = price_df.groupby('day_of_week')['price'].mean()
+    day_price = route_df.groupby('day_of_week')['price'].mean()
 
     if day_price.empty:
         return {
@@ -225,6 +179,37 @@ def get_cheapest_day(route_df: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
+def get_selected_day_price(route_df: pd.DataFrame, date_str: str) -> Dict[str, Any]:
+    """
+    Find the average price on the weekday of the requested travel date,
+    so it can be compared with the cheapest day.
+
+    Args:
+        route_df: Historical data for the specific route
+        date_str: Target date in YYYY-MM-DD format
+
+    Returns:
+        Dictionary with selected_day and avg_price (None when there is no data)
+    """
+    try:
+        day_of_week = datetime.strptime(date_str, "%Y-%m-%d").weekday()
+    except (ValueError, TypeError) as e:
+        logger.error(f"Invalid date format: {date_str}, error: {e}")
+        return {"selected_day": None, "avg_price": None}
+
+    selected_day = DAY_NAMES[day_of_week]
+    filtered = route_df[route_df['day_of_week'] == day_of_week] if not route_df.empty else route_df
+
+    if filtered.empty:
+        logger.warning(f"No price history for {selected_day}")
+        return {"selected_day": selected_day, "avg_price": None}
+
+    avg_price = round(filtered['price'].mean(), 2)
+    logger.info(f"Average price on {selected_day}: PKR {avg_price:.2f}")
+
+    return {"selected_day": selected_day, "avg_price": avg_price}
+
+
 def get_rule_recommendation(route_df: pd.DataFrame, date_str: str) -> Dict[str, Any]:
     """
     Combine all rule-based predictions into a single recommendation.
@@ -241,12 +226,15 @@ def get_rule_recommendation(route_df: pd.DataFrame, date_str: str) -> Dict[str, 
     crowd = predict_crowd_rule(route_df, date_str)
     best_time = get_best_travel_time(route_df, date_str)
     cheapest = get_cheapest_day(route_df)
+    selected = get_selected_day_price(route_df, date_str)
 
     recommendation = {
         **crowd,
         "bestTravelTime": best_time["best_time"],
         "cheapestDay": cheapest["cheapest_day"],
         "cheapestDayPrice": cheapest["avg_price"],
+        "selectedDay": selected["selected_day"],
+        "selectedDayPrice": selected["avg_price"],
         "bestTimeReason": best_time["reason"]
     }
 

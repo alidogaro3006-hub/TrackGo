@@ -33,6 +33,18 @@ import AppShell from '../components/AppShell';
 import { searchSchedules } from '../api';
 import { CITIES } from '../constants/cities';
 
+// travel time from HH:MM strings; arrival before departure means next day
+const getDuration = (departure, arrival) => {
+  if (!departure || !arrival) return 'N/A';
+  const [dh, dm] = departure.split(':').map(Number);
+  const [ah, am] = arrival.split(':').map(Number);
+  let minutes = ah * 60 + am - (dh * 60 + dm);
+  if (minutes <= 0) minutes += 24 * 60;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return mins ? `${hours}h ${mins}m` : `${hours}h`;
+};
+
 const SearchResultsPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -483,7 +495,7 @@ const SearchResultsPage = () => {
                             {schedule.arrivalTime}
                           </Typography>
                           <Chip
-                            label={schedule.duration || 'N/A'}
+                            label={getDuration(schedule.departureTime, schedule.arrivalTime)}
                             size="small"
                             sx={{
                               bgcolor: '#F7F7F7',

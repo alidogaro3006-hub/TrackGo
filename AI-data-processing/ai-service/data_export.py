@@ -46,21 +46,15 @@ def _configure_dns_fallback():
         logger.warning(f"Could not configure DNS fallback resolver: {e}")
 
 
-def fetch_real_bookings_df(
-    mongo_uri: str,
-    db_name: str,
-    source: Optional[str] = None,
-    destination: Optional[str] = None,
-    include_future: bool = False,
-) -> pd.DataFrame:
+def fetch_real_bookings_df(mongo_uri: str, db_name: str) -> pd.DataFrame:
     """
     Pull real Schedule documents (joined with their Route and Vehicle) from MongoDB
     and shape them into the same row format as generate_synthetic_data(), so they
     can be concatenated for training.
 
-    By default only schedules whose travel date has already passed are included.
-    Set include_future=True for live recommendations so current seat occupancy
-    on upcoming trips is used.
+    Only schedules whose travel date has already passed are included — a schedule
+    still open for booking hasn't reached its final occupancy yet, so including it
+    would be a noisy, incomplete signal.
     """
     from pymongo import MongoClient
 
@@ -70,21 +64,11 @@ def fetch_real_bookings_df(
     try:
         db = client[db_name]
 
-        route_query = {}
-        if source and destination:
-            route_query = {
-                'source': source.strip().upper(),
-                'destination': destination.strip().upper(),
-            }
-
-        routes = {r['_id']: r for r in db['routes'].find(route_query)}
+        routes = {r['_id']: r for r in db['routes'].find()}
         vehicles = {v['_id']: v for v in db['vehicles'].find()}
-        schedule_query = {'routeId': {'$in': list(routes.keys())}} if source and destination else {}
-        if not include_future:
-            schedule_query['date'] = {'$lt': datetime.utcnow()}
 
         records = []
-        for s in db['schedules'].find(schedule_query):
+        for s in db['schedules'].find({'date': {'$lt': datetime.now()}}):
             route = routes.get(s.get('routeId'))
             vehicle = vehicles.get(s.get('vehicleId'))
             if not route or not vehicle:
@@ -102,7 +86,6 @@ def fetch_real_bookings_df(
                 'date': schedule_date,
                 'day_of_week': day_of_week,
                 'time_slot': bucket_time_slot(s['departureTime']),
-                'departure_time': s['departureTime'],
                 'vehicle_type': vehicle['type'],
                 'total_capacity': capacity,
                 'seats_booked': seats_booked,
@@ -112,10 +95,7 @@ def fetch_real_bookings_df(
                 'week_of_year': schedule_date.isocalendar()[1],
             })
 
-        logger.info(
-            f"Fetched {len(records)} schedule records from MongoDB "
-            f"(future included: {include_future})"
-        )
+        logger.info(f"Fetched {len(records)} real historical schedule records from MongoDB")
         return pd.DataFrame(records)
     finally:
         client.close()

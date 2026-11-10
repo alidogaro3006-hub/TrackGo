@@ -73,8 +73,6 @@ def generate_explanations(
         "nn+rule-based": "Neural Network + Rule Engine hybrid",
         "dt+rule-based": "Decision Tree + Rule Engine hybrid",
         "rule-based": "Statistical rule-based analysis",
-        "live-occupancy": "Live occupancy from current TrackGo bookings",
-        "live-occupancy+nn": "Live occupancy + Neural Network hybrid",
         "fallback-cache": "Cached general estimates",
     }.get(method, method)
 

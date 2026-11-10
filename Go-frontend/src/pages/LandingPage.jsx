@@ -60,14 +60,11 @@ const AnimatedSection = ({ children }) => {
   );
 };
 
-const FloatingBadge = ({ children, delay = 0, side = 'left', vertical = 'bottom' }) => {
-  const isLeft = side === 'left';
-  const isTop = vertical === 'top';
-
+const FloatingBadge = ({ children, delay = 0, x = 0 }) => {
   return (
     <motion.div
       initial={{ y: 0 }}
-      animate={{ y: [-8, 8, -8] }}
+      animate={{ y: [-10, 10, -10] }}
       transition={{
         duration: 4,
         repeat: Infinity,
@@ -76,12 +73,9 @@ const FloatingBadge = ({ children, delay = 0, side = 'left', vertical = 'bottom'
       }}
       style={{
         position: 'absolute',
-        left: isLeft ? 32 : 'auto',
-        right: isLeft ? 'auto' : 32,
-        top: isTop ? 96 : 'auto',
-        bottom: isTop ? 'auto' : 40,
-        zIndex: 2,
-        pointerEvents: 'none',
+        left: x < 0 ? '5%' : 'auto',
+        right: x > 0 ? '5%' : 'auto',
+        bottom: '10%',
       }}
     >
       <Chip
@@ -104,7 +98,6 @@ const LandingPage = () => {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const showHeroBadges = useMediaQuery(theme.breakpoints.up('lg'));
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const [searchForm, setSearchForm] = useState({
@@ -368,17 +361,17 @@ const LandingPage = () => {
           </Box>
         </Container>
 
-        {showHeroBadges && (
+        {!isMobile && (
           <>
-            <FloatingBadge delay={0} side="left" vertical="bottom">
+            <FloatingBadge delay={0} x={-1}>
               <ConfirmationNumber sx={{ mr: 0.5, fontSize: 18 }} />
               1.2M+ Tickets Booked
             </FloatingBadge>
-            <FloatingBadge delay={1} side="right" vertical="bottom">
+            <FloatingBadge delay={1} x={1}>
               <RouteIcon sx={{ mr: 0.5, fontSize: 18 }} />
               50+ Routes
             </FloatingBadge>
-            <FloatingBadge delay={2} side="left" vertical="top">
+            <FloatingBadge delay={2} x={-1}>
               <AutoAwesome sx={{ mr: 0.5, fontSize: 18 }} />
               AI Recommendations
             </FloatingBadge>

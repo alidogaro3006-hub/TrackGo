@@ -25,36 +25,6 @@ load_dotenv()
 models = {}
 
 
-def _load_route_df(source: str, destination: str):
-    """Prefer live MongoDB occupancy for this route. Fall back to cached history."""
-    mongo_uri = os.getenv("MONGO_URI")
-    if mongo_uri:
-        try:
-            from data_export import fetch_real_bookings_df
-            real_df = fetch_real_bookings_df(
-                mongo_uri,
-                os.getenv("MONGO_DB_NAME", "test"),
-                source=source,
-                destination=destination,
-                include_future=True,
-            )
-            if len(real_df) > 0:
-                real_df = clean_data(real_df)
-                real_df = engineer_features(real_df)
-                logger.info(f"Using {len(real_df)} live MongoDB rows for {source} -> {destination}")
-                return real_df, "live-mongodb"
-        except Exception as e:
-            logger.warning(f"Live Mongo fetch failed ({e}); using cached history")
-
-    cached = models.get("dataframe")
-    if cached is None:
-        logger.warning("No cached dataframe available")
-        import pandas as pd
-        return pd.DataFrame(), "empty"
-
-    return get_route_history(cached, source, destination), "historical-cache"
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load models and data at startup, clean up at shutdown."""
@@ -136,17 +106,12 @@ def predict(
     if travel_date < datetime.now().date():
         raise HTTPException(400, "Date cannot be in the past")
 
-    route_df, data_source = _load_route_df(source, destination)
+    route_df = get_route_history(models["dataframe"], source, destination)
     rule_result = get_rule_recommendation(route_df, date)
-
-    time_slot = rule_result["bestTravelTime"]
-    if '-' not in time_slot:
-        from data_export import bucket_time_slot
-        time_slot = bucket_time_slot(time_slot)
 
     features = {
         "day_of_week": travel_date.weekday(),
-        "time_slot": time_slot.replace(" ", ""),
+        "time_slot": rule_result["bestTravelTime"].replace(" ", ""),
         "vehicle_type": "train",
         "month": travel_date.month,
         "week_of_year": travel_date.isocalendar()[1],
@@ -156,11 +121,10 @@ def predict(
     final_crowd = rule_result["crowd_level"]
     final_percent = rule_result["crowd_percent"]
     final_confidence = rule_result.get("confidence", 0)
-    method = "live-occupancy" if data_source == "live-mongodb" else "rule-based"
+    method = "rule-based"
     dt_feature_importances = None
-    has_live_data = data_source == "live-mongodb" and len(route_df) >= 4
 
-    if not has_live_data and models["nn"] is not None:
+    if models["nn"] is not None:
         try:
             nn_result = predict_nn(models["nn"], models["nn_scaler"], models["nn_encoders"], features)
             if nn_result["confidence"] >= 0.60:
@@ -171,7 +135,7 @@ def predict(
         except Exception as e:
             logger.warning(f"NN prediction failed: {e}. Falling back to rule engine.")
 
-    if not has_live_data and method == "rule-based" and models["dt"] is not None:
+    if method == "rule-based" and models["dt"] is not None:
         try:
             dt_result = predict_dt(models["dt"], models["dt_encoders"], features)
             if dt_result["confidence"] >= 0.55:
@@ -182,9 +146,6 @@ def predict(
                 dt_feature_importances = list(models["dt"].feature_importances_)
         except Exception as e:
             logger.warning(f"DT prediction failed: {e}")
-
-    if has_live_data and models["nn"] is not None:
-        method = "live-occupancy+nn"
 
     explanations = generate_explanations(
         source, destination, date,
@@ -205,10 +166,10 @@ def predict(
         "crowdPercent": final_percent,
         "cheapestDay": rule_result["cheapestDay"],
         "cheapestDayPrice": rule_result["cheapestDayPrice"],
+        "selectedDay": rule_result["selectedDay"],
+        "selectedDayPrice": rule_result["selectedDayPrice"],
         "method": method,
         "confidence": final_confidence,
-        "sampleSize": int(len(route_df)),
-        "dataSource": data_source,
         "explanations": explanations
     }
 

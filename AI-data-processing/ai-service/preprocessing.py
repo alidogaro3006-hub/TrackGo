@@ -27,34 +27,17 @@ TIME_SLOTS = [
 VEHICLE_TYPES = ["bus", "train"]
 
 ROUTE_DISTANCES = {
-    ("Karachi", "Lahore"): 1210,
-    ("Karachi", "Islamabad"): 1410,
+    ("Karachi", "Lahore"): 1200,
+    ("Karachi", "Islamabad"): 1400,
     ("Lahore", "Islamabad"): 375,
-    ("Lahore", "Rawalpindi"): 360,
+    ("Lahore", "Rawalpindi"): 350,
     ("Karachi", "Hyderabad"): 165,
-    ("Lahore", "Faisalabad"): 180,
-    ("Islamabad", "Peshawar"): 180,
+    ("Lahore", "Faisalabad"): 130,
+    ("Islamabad", "Peshawar"): 170,
     ("Lahore", "Multan"): 340,
-    ("Karachi", "Quetta"): 690,
-    ("Lahore", "Sialkot"): 130,
-    ("Lahore", "Gujranwala"): 80,
-    ("Multan", "Karachi"): 880,
-    ("Faisalabad", "Islamabad"): 320,
-    ("Sukkur", "Karachi"): 470,
-    ("Bahawalpur", "Lahore"): 420,
-    ("Sargodha", "Lahore"): 190,
-    ("Larkana", "Karachi"): 450,
-    ("Peshawar", "Lahore"): 520,
+    ("Karachi", "Quetta"): 680,
+    ("Lahore", "Sialkot"): 125,
 }
-
-# Match Go-backend seedDemoData.js so synthetic fallback agrees with live data.
-DAY_PRICE = [0.9, 0.72, 0.8, 0.95, 1.08, 1.25, 1.18]
-SLOT_PATTERNS = [
-    {"time_slot": "05:00-07:00", "occ": 0.22, "price": 0.85, "vehicle_type": "bus"},
-    {"time_slot": "07:00-09:00", "occ": 0.62, "price": 1.05, "vehicle_type": "train"},
-    {"time_slot": "13:00-15:00", "occ": 0.40, "price": 0.95, "vehicle_type": "bus"},
-    {"time_slot": "17:00-19:00", "occ": 0.72, "price": 1.12, "vehicle_type": "train"},
-]
 
 
 def generate_synthetic_data(n_records: int = 2000) -> pd.DataFrame:
@@ -75,38 +58,46 @@ def generate_synthetic_data(n_records: int = 2000) -> pd.DataFrame:
     logger.info(f"Generating {n_records} synthetic records...")
     np.random.seed(42)
 
-    corridors = list(ROUTE_DISTANCES.items())
     records = []
     base_date = datetime.now() - timedelta(days=365)
 
-    for i in range(n_records):
+    for _ in range(n_records):
         days_offset = np.random.randint(0, 365)
         record_date = base_date + timedelta(days=days_offset)
         day_of_week = record_date.weekday()
         is_weekend = day_of_week >= 5
 
-        (source, destination), km = corridors[i % len(corridors)]
-        if np.random.rand() < 0.5:
-            source, destination = destination, source
+        source = np.random.choice(CITIES)
+        destination = np.random.choice([c for c in CITIES if c != source])
         route_id = f"{source[:3].upper()}-{destination[:3].upper()}"
 
-        slot = SLOT_PATTERNS[i % len(SLOT_PATTERNS)]
-        time_slot = slot["time_slot"]
-        vehicle_type = slot["vehicle_type"]
+        time_slot = np.random.choice(TIME_SLOTS)
+        vehicle_type = np.random.choice(VEHICLE_TYPES)
+
         total_capacity = 45 if vehicle_type == "bus" else 200
 
-        occupancy = slot["occ"]
-        if day_of_week == 4:
-            occupancy += 0.1
+        is_peak_time = time_slot in ["07:00-09:00", "17:00-19:00", "19:00-21:00"]
+        base_occupancy = 0.3
+
         if is_weekend:
-            occupancy += 0.25
-        occupancy = float(np.clip(occupancy + np.random.normal(0, 0.03), 0.08, 0.96))
+            base_occupancy += 0.2
+        if is_peak_time:
+            base_occupancy += 0.25
+
+        popular_routes = [("Karachi", "Lahore"), ("Lahore", "Islamabad"),
+                         ("Karachi", "Islamabad")]
+        if (source, destination) in popular_routes or (destination, source) in popular_routes:
+            base_occupancy += 0.15
+
+        occupancy = np.clip(base_occupancy + np.random.normal(0, 0.15), 0, 1)
         seats_booked = int(occupancy * total_capacity)
 
-        per_km = 2.2 if vehicle_type == "train" else 3.0
-        price = km * per_km * DAY_PRICE[day_of_week] * slot["price"]
-        price *= 0.97 + np.random.rand() * 0.06
-        price = max(150, round(price / 10) * 10)
+        route_key = (source, destination)
+        reverse_route_key = (destination, source)
+        base_distance = ROUTE_DISTANCES.get(route_key) or ROUTE_DISTANCES.get(reverse_route_key, 500)
+
+        base_price = base_distance * 0.8 if vehicle_type == "bus" else base_distance * 1.2
+        price = base_price * (1 + np.random.uniform(-0.2, 0.2))
 
         records.append({
             'route_id': route_id,
@@ -191,7 +182,11 @@ def load_blended_data(min_real_rows: int = 50) -> pd.DataFrame:
         return pd.concat([synthetic_df, real_df], ignore_index=True)
 
     logger.info(f"{len(real_df)} real records found - using real data as primary signal")
-    supplement = synthetic_df.sample(n=min(300, len(synthetic_df)), random_state=42)
+    # only top up routes that have no real history, so route averages reflect real prices
+    real_routes = set(zip(real_df['source'].str.lower(), real_df['destination'].str.lower()))
+    synthetic_routes = list(zip(synthetic_df['source'].str.lower(), synthetic_df['destination'].str.lower()))
+    unseen = synthetic_df[[r not in real_routes for r in synthetic_routes]]
+    supplement = unseen.sample(n=min(300, len(unseen)), random_state=42)
     return pd.concat([supplement, real_df], ignore_index=True)
 
 

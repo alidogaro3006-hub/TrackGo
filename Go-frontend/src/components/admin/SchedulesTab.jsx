@@ -1,9 +1,10 @@
+import { useState, useEffect } from 'react';
 import {
   Box, Card, Typography, Button, IconButton, Chip,
   Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Skeleton, Grid,
   FormControl, InputLabel, Select, MenuItem,
-  TextField,
+  TextField, TablePagination,
 } from '@mui/material';
 import { Edit, Delete, Add, DirectionsBus, Train } from '@mui/icons-material';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -13,6 +14,30 @@ import dayjs from 'dayjs';
 import { cities } from './constants';
 
 const SchedulesTab = ({ schedules, isLoading, onOpenDialog, onDelete, filters, onFilterChange, isMobile }) => {
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+
+  useEffect(() => {
+    setPage(0);
+  }, [schedules]);
+
+  const visibleSchedules = schedules.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+
+  const pagination = (
+    <TablePagination
+      component="div"
+      count={schedules.length}
+      page={page}
+      onPageChange={(e, newPage) => setPage(newPage)}
+      rowsPerPage={rowsPerPage}
+      onRowsPerPageChange={(e) => {
+        setRowsPerPage(parseInt(e.target.value, 10));
+        setPage(0);
+      }}
+      rowsPerPageOptions={[10, 25, 50, 100]}
+    />
+  );
+
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -78,7 +103,7 @@ const SchedulesTab = ({ schedules, isLoading, onOpenDialog, onDelete, filters, o
         </Box>
       ) : isMobile ? (
         <Box>
-          {schedules.map((schedule) => (
+          {visibleSchedules.map((schedule) => (
             <Card key={schedule._id} sx={{ p: 2, mb: 2, borderRadius: '12px' }}>
               <Box sx={{ mb: 2 }}>
                 <Typography sx={{ fontWeight: 700, fontSize: '16px', mb: 0.5 }}>
@@ -135,66 +160,70 @@ const SchedulesTab = ({ schedules, isLoading, onOpenDialog, onDelete, filters, o
               </Box>
             </Card>
           ))}
+          {pagination}
         </Box>
       ) : (
-        <TableContainer>
-          <Table>
-            <TableHead>
-              <TableRow sx={{ bgcolor: '#F7F7F7' }}>
-                <TableCell sx={{ fontWeight: 700 }}>Route</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Vehicle</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Departure</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Arrival</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Price</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Booked/Total</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {schedules.map((schedule, index) => (
-                <TableRow key={schedule._id} sx={{ bgcolor: index % 2 === 0 ? 'white' : '#FAFAFA' }}>
-                  <TableCell>
-                    <Typography sx={{ fontWeight: 600, fontSize: '14px' }}>
-                      {schedule.routeId?.source} → {schedule.routeId?.destination}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {schedule.vehicleId?.type === 'bus'
-                        ? <DirectionsBus sx={{ color: '#00A699', fontSize: 18 }} />
-                        : <Train sx={{ color: '#FF385C', fontSize: 18 }} />}
-                      <Typography sx={{ fontSize: '13px' }}>
-                        {schedule.vehicleId?.registrationNumber}
-                      </Typography>
-                    </Box>
-                  </TableCell>
-                  <TableCell>{schedule.departureTime}</TableCell>
-                  <TableCell>{schedule.arrivalTime}</TableCell>
-                  <TableCell>{dayjs(schedule.date).format('MMM DD, YYYY')}</TableCell>
-                  <TableCell>
-                    <Typography sx={{ fontWeight: 700, color: '#FF385C' }}>
-                      PKR {schedule.price}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    {schedule.bookedSeats?.length || 0}/{schedule.vehicleId?.capacity}
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      <IconButton size="small" onClick={() => onOpenDialog(schedule)} sx={{ color: '#FF385C' }}>
-                        <Edit />
-                      </IconButton>
-                      <IconButton size="small" onClick={() => onDelete(schedule._id)} sx={{ color: '#EF4444' }}>
-                        <Delete />
-                      </IconButton>
-                    </Box>
-                  </TableCell>
+        <>
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow sx={{ bgcolor: '#F7F7F7' }}>
+                  <TableCell sx={{ fontWeight: 700 }}>Route</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Vehicle</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Departure</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Arrival</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Price</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Booked/Total</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Actions</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+              </TableHead>
+              <TableBody>
+                {visibleSchedules.map((schedule, index) => (
+                  <TableRow key={schedule._id} sx={{ bgcolor: index % 2 === 0 ? 'white' : '#FAFAFA' }}>
+                    <TableCell>
+                      <Typography sx={{ fontWeight: 600, fontSize: '14px' }}>
+                        {schedule.routeId?.source} → {schedule.routeId?.destination}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {schedule.vehicleId?.type === 'bus'
+                          ? <DirectionsBus sx={{ color: '#00A699', fontSize: 18 }} />
+                          : <Train sx={{ color: '#FF385C', fontSize: 18 }} />}
+                        <Typography sx={{ fontSize: '13px' }}>
+                          {schedule.vehicleId?.registrationNumber}
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                    <TableCell>{schedule.departureTime}</TableCell>
+                    <TableCell>{schedule.arrivalTime}</TableCell>
+                    <TableCell>{dayjs(schedule.date).format('MMM DD, YYYY')}</TableCell>
+                    <TableCell>
+                      <Typography sx={{ fontWeight: 700, color: '#FF385C' }}>
+                        PKR {schedule.price}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      {schedule.bookedSeats?.length || 0}/{schedule.vehicleId?.capacity}
+                    </TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <IconButton size="small" onClick={() => onOpenDialog(schedule)} sx={{ color: '#FF385C' }}>
+                          <Edit />
+                        </IconButton>
+                        <IconButton size="small" onClick={() => onDelete(schedule._id)} sx={{ color: '#EF4444' }}>
+                          <Delete />
+                        </IconButton>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          {pagination}
+        </>
       )}
     </Box>
   );

@@ -17,8 +17,6 @@ import {
   AccessTime,
   AttachMoney,
   TrendingUp,
-  DirectionsBus,
-  Train,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -37,6 +35,7 @@ const RecommendationsPage = () => {
   const [date, setDate] = useState(dayjs());
   const [isLoading, setIsLoading] = useState(false);
   const [recommendations, setRecommendations] = useState(null);
+  const [routeUnavailable, setRouteUnavailable] = useState(null);
 
   const cities = CITIES;
 
@@ -52,6 +51,7 @@ const RecommendationsPage = () => {
     }
 
     setIsLoading(true);
+    setRouteUnavailable(null);
     try {
       const response = await getRecommendations({
         source,
@@ -63,8 +63,13 @@ const RecommendationsPage = () => {
         setRecommendations(response.data.data);
       }
     } catch (error) {
-      console.error('Failed to fetch recommendations:', error);
-      toast.error(error.response?.data?.message || 'Failed to load recommendations');
+      setRecommendations(null);
+      if (error.response?.status === 404) {
+        setRouteUnavailable(error.response.data?.message || 'This route is not available yet.');
+      } else {
+        console.error('Failed to fetch recommendations:', error);
+        toast.error(error.response?.data?.message || 'Failed to load recommendations');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -254,10 +259,10 @@ const RecommendationsPage = () => {
                 mb: 1,
               }}
             >
-              Ready to Analyze
+              {routeUnavailable ? 'Route Not Available' : 'Ready to Analyze'}
             </Typography>
             <Typography sx={{ fontSize: '16px', color: '#666666' }}>
-              Select a route and date to get AI-powered insights
+              {routeUnavailable || 'Select a route and date to get AI-powered insights'}
             </Typography>
           </Card>
         )}
@@ -313,14 +318,10 @@ const RecommendationsPage = () => {
                         fontSize: '32px',
                         fontWeight: 800,
                         color: getCrowdColor(recommendations.crowdLevel),
-                        mb: 0.5,
+                        mb: 2,
                       }}
                     >
                       {recommendations.crowdLevel}
-                    </Typography>
-                    <Typography sx={{ fontSize: '14px', color: '#666666', mb: 2 }}>
-                      {Math.round(recommendations.crowdPercent ?? getCrowdPercent(recommendations.crowdLevel))}% seats booked
-                      {recommendations.dataSource === 'live-schedules' ? ' · live occupancy' : ''}
                     </Typography>
 
                     <Box
@@ -511,39 +512,21 @@ const RecommendationsPage = () => {
                     gap: 1,
                     justifyContent: 'space-between',
                     mb: 2,
-                    alignItems: 'flex-end',
                   }}
                 >
-                  {(recommendations.weekdayPrices?.length
-                    ? recommendations.weekdayPrices.map((item) => ({
-                        day: item.day.slice(0, 3),
-                        price: item.avgPrice,
-                        isCheapest:
-                          item.day.toLowerCase() ===
-                          (recommendations.cheapestDay || '').toLowerCase(),
-                      }))
-                    : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => ({
-                        day,
-                        price: null,
-                        isCheapest:
-                          day.toLowerCase() ===
-                          (recommendations.cheapestDay || 'Wednesday')
-                            .substring(0, 3)
-                            .toLowerCase(),
-                      }))
-                  ).map((item) => {
-                    const prices = (recommendations.weekdayPrices || [])
-                      .map((entry) => entry.avgPrice)
-                      .filter((price) => price > 0);
-                    const maxPrice = Math.max(...prices, 1);
-                    const height = item.price
-                      ? 36 + Math.round((item.price / maxPrice) * 52)
-                      : item.isCheapest
-                        ? 80
-                        : 60;
+                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => {
+                    const isCheapest =
+                      day.toLowerCase() ===
+                      (recommendations.cheapestDay || 'Wednesday')
+                        .substring(0, 3)
+                        .toLowerCase();
+                    const isSelected =
+                      !isCheapest &&
+                      day.toLowerCase() ===
+                        (recommendations.selectedDay || '').substring(0, 3).toLowerCase();
                     return (
                       <Box
-                        key={item.day}
+                        key={day}
                         sx={{
                           flex: 1,
                           textAlign: 'center',
@@ -551,10 +534,14 @@ const RecommendationsPage = () => {
                       >
                         <Box
                           sx={{
-                            height,
-                            bgcolor: item.isCheapest ? '#FF385C' : '#F7F7F7',
+                            height: isCheapest ? 80 : 60,
+                            bgcolor: isCheapest ? '#FF385C' : '#F7F7F7',
                             borderRadius: '8px',
-                            border: item.isCheapest ? 'none' : '2px solid #E0E0E0',
+                            border: isCheapest
+                              ? 'none'
+                              : isSelected
+                                ? '2px dashed #FF385C'
+                                : '2px solid #E0E0E0',
                             mb: 1,
                             transition: 'all 0.3s ease',
                           }}
@@ -562,21 +549,46 @@ const RecommendationsPage = () => {
                         <Typography
                           sx={{
                             fontSize: '12px',
-                            fontWeight: item.isCheapest ? 700 : 600,
-                            color: item.isCheapest ? '#FF385C' : '#666666',
+                            fontWeight: isCheapest || isSelected ? 700 : 600,
+                            color: isCheapest ? '#FF385C' : isSelected ? '#222222' : '#666666',
                           }}
                         >
-                          {item.day}
+                          {day}
                         </Typography>
-                        {item.price ? (
-                          <Typography sx={{ fontSize: '10px', color: '#888888' }}>
-                            {item.price}
-                          </Typography>
-                        ) : null}
                       </Box>
                     );
                   })}
                 </Box>
+
+                {recommendations.selectedDayPrice != null && (
+                  <Box
+                    sx={{
+                      p: 1.5,
+                      mb: 2,
+                      borderRadius: '12px',
+                      bgcolor: recommendations.selectedDay === recommendations.cheapestDay ? '#E6FAF8' : '#FFF4E5',
+                    }}
+                  >
+                    {recommendations.selectedDay === recommendations.cheapestDay ? (
+                      <Typography sx={{ fontSize: '14px', fontWeight: 600, color: '#00A699' }}>
+                        Your date ({recommendations.selectedDay}) is already the cheapest day to travel.
+                      </Typography>
+                    ) : (
+                      <Typography sx={{ fontSize: '14px', color: '#222222' }}>
+                        Your date ({recommendations.selectedDay}):{' '}
+                        <strong>PKR {Math.round(recommendations.selectedDayPrice).toLocaleString()}</strong>
+                        {recommendations.selectedDayPrice > recommendations.cheapestDayPrice && (
+                          <>
+                            {' '}· Travel on {recommendations.cheapestDay} to save{' '}
+                            <strong style={{ color: '#00A699' }}>
+                              PKR {Math.round(recommendations.selectedDayPrice - recommendations.cheapestDayPrice).toLocaleString()}
+                            </strong>
+                          </>
+                        )}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
 
                 <Typography sx={{ fontSize: '14px', color: '#666666' }}>
                   {recommendations.explanations?.cheapestDay ||
@@ -585,69 +597,15 @@ const RecommendationsPage = () => {
               </Card>
             </motion.div>
 
-            {recommendations.liveSchedules?.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: 0.35 }}
-              >
-                <Card sx={{ p: 4, borderRadius: '20px', mb: 2 }}>
-                  <Typography
-                    sx={{
-                      fontSize: '14px',
-                      fontWeight: 600,
-                      color: '#666666',
-                      mb: 2,
-                      textTransform: 'uppercase',
-                      letterSpacing: 0.5,
-                    }}
-                  >
-                    Live occupancy on this date
-                  </Typography>
-                  <Grid container spacing={2}>
-                    {recommendations.liveSchedules.map((trip) => (
-                      <Grid item xs={12} sm={6} md={3} key={`${trip.departureTime}-${trip.vehicleType}-${trip.price}`}>
-                        <Box
-                          sx={{
-                            p: 2,
-                            borderRadius: '12px',
-                            bgcolor: '#F7F7F7',
-                            height: '100%',
-                          }}
-                        >
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                            {trip.vehicleType === 'train' ? (
-                              <Train sx={{ fontSize: 18, color: '#FF385C' }} />
-                            ) : (
-                              <DirectionsBus sx={{ fontSize: 18, color: '#00A699' }} />
-                            )}
-                            <Typography sx={{ fontWeight: 700, color: '#222222' }}>
-                              {trip.departureTime}
-                            </Typography>
-                          </Box>
-                          <Typography sx={{ fontSize: '13px', color: '#666666' }}>
-                            {trip.occupancyPercent}% full · {trip.booked}/{trip.capacity} seats
-                          </Typography>
-                          <Typography sx={{ fontSize: '13px', color: '#222222', mt: 0.5 }}>
-                            PKR {trip.price}
-                          </Typography>
-                        </Box>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </Card>
-              </motion.div>
-            )}
-
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.4 }}
             >
-              <Box sx={{ textAlign: 'center', mt: 3, display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <Box sx={{ textAlign: 'center', mt: 3 }}>
                 <Chip
                   icon={<TrendingUp />}
-                  label={`Powered by ${recommendations.method || 'live occupancy'}`}
+                  label={`Powered by ${recommendations.method || 'Neural Network + Rule Engine'}`}
                   sx={{
                     bgcolor: '#F7F7F7',
                     color: '#666666',
@@ -657,19 +615,6 @@ const RecommendationsPage = () => {
                     height: 36,
                   }}
                 />
-                {recommendations.sampleSize ? (
-                  <Chip
-                    label={`${recommendations.sampleSize} trips analysed`}
-                    sx={{
-                      bgcolor: '#E6FAF8',
-                      color: '#00A699',
-                      fontWeight: 600,
-                      fontSize: '14px',
-                      px: 2,
-                      height: 36,
-                    }}
-                  />
-                ) : null}
               </Box>
             </motion.div>
           </Box>
